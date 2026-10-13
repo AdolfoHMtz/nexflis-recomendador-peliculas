@@ -1,5 +1,7 @@
 import json
 import hashlib
+import time
+import threading
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Any
 
@@ -7,12 +9,69 @@ from core.logger import get_logger
 
 try:
     import psycopg2
+    from psycopg2 import pool as _pg_pool
     from psycopg2.extras import RealDictCursor
 except ImportError:
     psycopg2 = None
+    _pg_pool = None
     RealDictCursor = None
 
 logger = get_logger(__name__)
+
+
+_POOL_MAX = 20
+_LAST_USED = {}  # id(conexion) -> instante del ultimo uso (psycopg2 no admite atributos)
+_IDLE_CHECK_SECONDS = 30
+
+
+class _PooledConn:
+    """Envoltorio de conexion: close() la devuelve al pool en vez de cerrarla.
+
+    Mantiene intacta la API usada por el servicio (`with conn:`, `conn.cursor()`,
+    `conn.close()`), asi evitar abrir TCP+TLS hacia la BD en cada consulta.
+    """
+
+    def __init__(self, raw, pool_ref):
+        self._raw = raw
+        self._pool = pool_ref
+        self._released = False
+
+    def __getattr__(self, name):
+        return getattr(self._raw, name)
+
+    def __enter__(self):
+        return self._raw.__enter__()
+
+    def __exit__(self, *exc):
+        return self._raw.__exit__(*exc)
+
+    def close(self):
+        if self._released:
+            return
+        self._released = True
+        try:
+            if self._pool is None:
+                self._raw.close()
+                return
+            if self._raw.closed:
+                self._pool.putconn(self._raw, close=True)
+                return
+            try:
+                self._raw.rollback()
+            except Exception:
+                self._pool.putconn(self._raw, close=True)
+                return
+            _LAST_USED[id(self._raw)] = time.monotonic()
+            self._pool.putconn(self._raw)
+        except Exception:
+            logger.debug('No se pudo devolver la conexion al pool', exc_info=True)
+
+    def __del__(self):
+        # Red de seguridad: rutas con excepcion que no llegaron a close().
+        try:
+            self.close()
+        except Exception:
+            pass
 
 
 class DatabaseService:
@@ -28,6 +87,8 @@ class DatabaseService:
     def __init__(self, db_url: str):
         self._db_url = db_url
         self._ready = False
+        self._pool = None
+        self._pool_lock = threading.Lock()
         if db_url and psycopg2:
             self._ensure_cache_table()
             self._ensure_users_table()
@@ -43,10 +104,39 @@ class DatabaseService:
     # Conexion
     # ------------------------------------------------------------------
 
+    def _get_pool(self):
+        if self._pool is None:
+            with self._pool_lock:
+                if self._pool is None and _pg_pool is not None:
+                    self._pool = _pg_pool.ThreadedConnectionPool(1, _POOL_MAX, self._db_url)
+        return self._pool
+
     def _connect(self):
+        """Devuelve una conexion del pool (cae a conexion directa si el pool falla)."""
         if not self._db_url or not psycopg2:
             return None
-        return psycopg2.connect(self._db_url)
+        try:
+            pool = self._get_pool()
+            if pool is None:
+                return _PooledConn(psycopg2.connect(self._db_url), None)
+            raw = pool.getconn()
+            last = _LAST_USED.get(id(raw))
+            stale = raw.closed or (last is not None and time.monotonic() - last > _IDLE_CHECK_SECONDS)
+            if stale and not raw.closed:
+                try:
+                    with raw.cursor() as cur:
+                        cur.execute('SELECT 1')
+                    raw.rollback()
+                except Exception:
+                    pool.putconn(raw, close=True)
+                    raw = pool.getconn()
+            elif raw.closed:
+                pool.putconn(raw, close=True)
+                raw = pool.getconn()
+            return _PooledConn(raw, pool)
+        except Exception:
+            logger.warning('Pool de conexiones no disponible, usando conexion directa', exc_info=True)
+            return _PooledConn(psycopg2.connect(self._db_url), None)
 
     def _ensure_tables(self) -> None:
         """Alias publico para _ensure_cache_table + _ensure_users_table."""

@@ -1,0 +1,1141 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Nexflis RecInf</title>
+    <link
+      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
+      rel="stylesheet"
+    />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+    />
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='css/style.css') }}"
+    />
+  </head>
+  <body>
+    <!-- ============ NAVBAR ============ -->
+    <nav
+      class="navbar-custom sticky-top d-flex align-items-center justify-content-between"
+    >
+      <a href="/" class="brand text-decoration-none text-white"
+        ><span>NEXFLIS</span></a
+      >
+      <div class="search-wrapper">
+        <i class="fa-solid fa-magnifying-glass search-icon"></i>
+        <input
+          type="text"
+          id="searchInput"
+          class="search-input"
+          placeholder="Buscar pelicula..."
+          autocomplete="off"
+        />
+        <div id="searchResults" class="search-dropdown"></div>
+      </div>
+      <div class="d-flex align-items-center gap-2 ms-3">
+        {% if usuario %}
+          <span class="text-secondary" style="font-size:.85rem;">
+            <i class="fa-solid fa-user me-1"></i>{{ usuario.username }}
+          </span>
+          <form method="POST" action="{{ url_for('auth.logout') }}" class="m-0">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+            <button type="submit" class="btn btn-sm btn-outline-secondary" style="font-size:.8rem; border-radius:6px;">
+              Salir
+            </button>
+          </form>
+        {% else %}
+          <a href="{{ url_for('auth.login_form') }}" class="btn btn-sm btn-outline-light" style="font-size:.8rem; border-radius:6px;">
+            Iniciar sesion
+          </a>
+          <a href="{{ url_for('auth.register_form') }}" class="btn btn-sm" style="font-size:.8rem; border-radius:6px; background:#e50914; color:#fff; border:none;">
+            Registrarse
+          </a>
+        {% endif %}
+      </div>
+    </nav>
+
+    <!-- ============ CONTENIDO PRINCIPAL ============ -->
+    <div class="container-fluid px-4 px-md-5 pb-5">
+      <!-- ---- HERO + BUSQUEDA AVANZADA ---- -->
+      <section class="hero-panel mt-3 mb-4">
+        <div class="d-flex justify-content-between align-items-start gap-2">
+          <div>
+            <div class="hero-title">¿Qué quieres ver hoy?</div>
+            <div class="hero-subtitle">
+              Selecciona dimensiones y el modo lógico para combinar filtros.
+            </div>
+          </div>
+          <details class="query-help">
+            <summary title="Ayuda de búsqueda">
+              <i class="fa-solid fa-circle-question me-1"></i>
+              Ayuda
+            </summary>
+            <div class="query-help-box mt-2">
+              <div class="query-help-title">
+                <i class="fa-solid fa-circle-info me-1"></i> Modos de
+                combinación
+              </div>
+              <ul class="query-help-list mb-0">
+                <li>
+                  <strong>AND</strong>: exige que se cumplan todas las
+                  dimensiones seleccionadas.
+                </li>
+                <li>
+                  <strong>OR</strong>: une resultados de cualquiera de las
+                  dimensiones seleccionadas.
+                </li>
+                <li>
+                  <strong>NOT</strong>: excluye de populares lo que coincida con
+                  tus filtros.
+                </li>
+              </ul>
+            </div>
+          </details>
+        </div>
+
+        <div class="hero-logic mt-3" id="heroLogicModes">
+          <button class="hero-logic-btn active" data-logic="and" type="button">
+            AND
+          </button>
+          <button class="hero-logic-btn" data-logic="or" type="button">
+            OR
+          </button>
+          <button class="hero-logic-btn" data-logic="not" type="button">
+            NOT
+          </button>
+        </div>
+
+        <div class="hero-dimensions mt-3">
+          <button
+            class="hero-dim-btn active"
+            data-dimension="genre"
+            type="button"
+          >
+            Géneros
+          </button>
+          <button class="hero-dim-btn" data-dimension="keyword" type="button">
+            Keywords
+          </button>
+          <button class="hero-dim-btn" data-dimension="actor" type="button">
+            Actores
+          </button>
+          <button class="hero-dim-btn" data-dimension="director" type="button">
+            Directores
+          </button>
+          <button
+            class="hero-dim-btn"
+            data-dimension="collection"
+            type="button"
+          >
+            Sagas
+          </button>
+        </div>
+
+        <div class="row g-2 mt-2">
+          <div class="col-lg-9 position-relative">
+            <input
+              id="heroFacetInput"
+              type="text"
+              class="search-input"
+              placeholder="Buscar por Géneros..."
+              autocomplete="off"
+            />
+            <div id="heroFacetResults" class="search-dropdown"></div>
+          </div>
+          <div class="col-lg-3 d-grid">
+            <button class="btn-recommend" id="btnHeroSearch" type="button">
+              <i class="fa-solid fa-sparkles me-1"></i> Buscar
+            </button>
+          </div>
+        </div>
+
+        <div class="selected-summary mt-2" id="heroSummary">
+          Deseas buscar algo con:
+          <span class="text-secondary">(aún sin filtros)</span>
+        </div>
+        <div id="heroSelectedChips" class="hero-chip-wrap mt-2"></div>
+      </section>
+
+      <section id="advancedSection" style="display: none">
+        <h4 class="section-title">
+          <i class="fa-solid fa-diagram-project" style="color: #a78bfa"></i>
+          Resultados de búsqueda avanzada
+        </h4>
+        <div id="heroFallbackMsg" class="small text-secondary mb-2"></div>
+        <div class="scroll-row" id="advancedResultsRow"></div>
+      </section>
+
+      <!-- ---- CONTINUAR VIENDO ---- -->
+      {% if historial %}
+      <script>
+        var _historial = {{ historial | tojson }};
+      </script>
+      <h4 class="section-title">
+        <i class="fa-solid fa-clock-rotate-left text-secondary"></i> Volver a
+        ver
+      </h4>
+      <div class="scroll-row">
+        {% for peli in historial %}
+        <div
+          class="movie-card"
+          onclick="abrirInfo(_historial[{{ loop.index0 }}])"
+        >
+          {% if peli.poster_path %}
+          <img
+            src="https://image.tmdb.org/t/p/w342{{ peli.poster_path }}"
+            class="movie-poster"
+            loading="lazy"
+            onerror="
+              this.style.display = 'none';
+              this.nextElementSibling.style.display = 'flex';
+            "
+          />
+          <div class="no-poster" style="display: none">
+            <i class="fa-solid fa-film fa-2x"></i>
+          </div>
+          {% else %}
+          <div class="no-poster"><i class="fa-solid fa-film fa-2x"></i></div>
+          {% endif %}
+          <div class="card-title">{{ peli.title }}</div>
+          <div class="watch-progress">
+            <div
+              class="watch-progress-bar"
+              style="width: {{ peli.progreso }}%"
+            ></div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      <!-- ---- RECOMENDACIONES ---- -->
+      {% if recomendados %}
+      <script>
+        var _recomendados = {{ recomendados | tojson }};
+      </script>
+      <h4 class="section-title">
+        <i class="fa-solid fa-wand-magic-sparkles text-info"></i>
+        Según lo que has visto, te recomendamos esto
+      </h4>
+      <div class="text-secondary small mb-2" style="margin-top: -10px">
+        Basado en tu perfil de las últimas 5 películas vistas.
+      </div>
+      <div class="scroll-row">
+        {% for peli in recomendados %}
+        <div
+          class="movie-card"
+          data-bs-toggle="modal"
+          data-bs-target="#explModal{{ loop.index }}"
+        >
+          {% if peli.poster_path %}
+          <img
+            src="https://image.tmdb.org/t/p/w342{{ peli.poster_path }}"
+            class="movie-poster"
+            loading="lazy"
+            onerror="
+              this.style.display = 'none';
+              this.nextElementSibling.style.display = 'flex';
+            "
+          />
+          <div class="no-poster" style="display: none">
+            <i class="fa-solid fa-film fa-2x"></i>
+          </div>
+          {% else %}
+          <div class="no-poster"><i class="fa-solid fa-film fa-2x"></i></div>
+          {% endif %}
+          <div class="card-title fw-bold">{{ peli.title }}</div>
+          <div class="match-badge">
+            {{ (peli.score_final * 100) | round(1) }}% Match
+          </div>
+          <div class="ir-badge">
+            <i class="fa-solid fa-flask" style="font-size:.6rem"></i>
+            {% set _scores = [('Sem', peli.expl_semantic), ('Cast', peli.expl_cast), ('Gen', peli.expl_genres), ('Intent', peli.expl_intent), ('Saga', peli.expl_saga)] | sort(attribute=1, reverse=true) %}
+            {{ _scores[0][0] }} {{ (_scores[0][1] * 100) | round(0) | int }}%
+            <span class="ir-tooltip">VSM {{ (peli.expl_semantic * 100)|round(1) }}% &bull; Jaccard {{ ((peli.expl_cast + peli.expl_genres) * 100)|round(1) }}% &bull; TF-IDF aplicado</span>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+
+      <!-- Modales de explicacion -->
+      {% for peli in recomendados %}
+      <div
+        class="modal fade"
+        id="explModal{{ loop.index }}"
+        tabindex="-1"
+        data-movie-id="{{ peli.id }}"
+      >
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+          <div class="modal-content">
+            <div class="modal-body p-0">
+              <div class="row g-0">
+                <div class="col-md-4 p-3 text-center">
+                  {% if peli.poster_path %}
+                  <img
+                    src="https://image.tmdb.org/t/p/w500{{ peli.poster_path }}"
+                    class="expl-poster"
+                    onerror="
+                      this.style.display = 'none';
+                      this.nextElementSibling.style.display = 'flex';
+                    "
+                  />
+                  <div
+                    class="no-poster mx-auto"
+                    style="max-width: 220px; display: none"
+                  >
+                    <i class="fa-solid fa-film fa-3x"></i>
+                  </div>
+                  {% else %}
+                  <div class="no-poster mx-auto" style="max-width: 220px">
+                    <i class="fa-solid fa-film fa-3x"></i>
+                  </div>
+                  {% endif %}
+                </div>
+                <div class="col-md-8 p-4">
+                  <button
+                    type="button"
+                    class="btn-close btn-close-white float-end"
+                    data-bs-dismiss="modal"
+                  ></button>
+                  <h4 class="fw-bold mb-1">{{ peli.title }}</h4>
+                  <p class="text-secondary small mb-3">
+                    {{ peli.genres_list | join(', ') }} &middot; {{ peli.runtime
+                    | int }} min &middot;
+                    <i class="fa-solid fa-star text-warning"></i> {{
+                    peli.vote_average }}
+                  </p>
+
+                  <div class="expl-detail-block mb-3">
+                    <div class="expl-detail-label">SINOPSIS</div>
+                    <div
+                      class="expl-detail-overview"
+                      data-role="modal-overview"
+                    >
+                      {{ peli.overview or 'Sinopsis no disponible' }}
+                    </div>
+                    <div class="expl-detail-label mt-2">KEYWORDS</div>
+                    <div
+                      class="expl-detail-keywords"
+                      data-role="modal-keywords"
+                    >
+                      {% if peli.keywords_list %}{{ peli.keywords_list[:8] |
+                      join(' · ') }}{% else %}Keywords no disponibles{% endif %}
+                    </div>
+                  </div>
+
+                  <h6 class="text-info mb-3">
+                    <i class="fa-solid fa-brain me-1"></i> Matriz (8 Variables =
+                    100%)
+                  </h6>
+
+                  <table class="expl-table">
+                    <thead>
+                      <tr>
+                        <th>Variable</th>
+                        <th>Peso</th>
+                        <th>Detalle</th>
+                        <th class="text-end">Score</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td colspan="4" class="text-secondary small pt-2 expl-section-caption">CONTENIDO (75%)</td>
+                      </tr>
+                      <tr>
+                        <td><i class="fa-solid fa-users me-1 text-info"></i>Reparto</td>
+                        <td>15%</td>
+                        <td>{% if peli.shared_cast %}<span class="expl-shared">{{ peli.shared_cast | join(', ') }}</span>{% else %}<span class="expl-none">Ninguno en comun</span>{% endif %}</td>
+                        <td>
+                          <div class="expl-bar-wrap">
+                            <div class="expl-bar-bg"><div class="expl-bar-fill {% if peli.expl_cast < 0.05 %}bar-low{% elif peli.expl_cast < 0.10 %}bar-mid{% else %}bar-high{% endif %}" style="width:{{ [((peli.expl_cast / 0.15) * 100)|round(0)|int, 100]|min }}%"></div></div>
+                            <span class="expl-bar-pct">{{ (peli.expl_cast * 100) | round(1) }}%</span>
+                          </div>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td><i class="fa-solid fa-layer-group me-1" style="color:#a78bfa"></i>Saga</td>
+                        <td>10%</td>
+                        <td>{% if peli.same_saga %}<span class="expl-shared">{{ peli.saga_name }} <i class="fa-solid fa-check"></i></span>{% else %}<span class="expl-none">{% if peli.saga_name %}{{ peli.saga_name }}{% else %}Sin saga{% endif %} <i class="fa-solid fa-xmark"></i></span>{% endif %}</td>
+                        <td>
+                          <div class="expl-bar-wrap">
+                            <div class="expl-bar-bg"><div class="expl-bar-fill {% if peli.expl_saga < 0.04 %}bar-low{% elif peli.expl_saga < 0.07 %}bar-mid{% else %}bar-high{% endif %}" style="width:{{ [((peli.expl_saga / 0.10) * 100)|round(0)|int, 100]|min }}%"></div></div>
+                            <span class="expl-bar-pct">{{ (peli.expl_saga * 100) | round(1) }}%</span>
+                          </div>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td><i class="fa-solid fa-masks-theater me-1 text-warning"></i>Generos</td>
+                        <td>15%</td>
+                        <td>{% if peli.shared_genres %}<span class="expl-shared">{{ peli.shared_genres | join(', ') }}</span>{% else %}<span class="expl-none">Ninguno en comun</span>{% endif %}</td>
+                        <td>
+                          <div class="expl-bar-wrap">
+                            <div class="expl-bar-bg"><div class="expl-bar-fill {% if peli.expl_genres < 0.05 %}bar-low{% elif peli.expl_genres < 0.10 %}bar-mid{% else %}bar-high{% endif %}" style="width:{{ [((peli.expl_genres / 0.15) * 100)|round(0)|int, 100]|min }}%"></div></div>
+                            <span class="expl-bar-pct">{{ (peli.expl_genres * 100) | round(1) }}%</span>
+                          </div>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td><i class="fa-solid fa-clapperboard me-1 text-danger"></i>Director</td>
+                        <td>5%</td>
+                        <td>{% if peli.same_director %}<span class="expl-shared">{{ peli.director }} <i class="fa-solid fa-check"></i></span>{% else %}<span class="expl-none">{{ peli.director }} <i class="fa-solid fa-xmark"></i></span>{% endif %}</td>
+                        <td>
+                          <div class="expl-bar-wrap">
+                            <div class="expl-bar-bg"><div class="expl-bar-fill {% if peli.expl_dir < 0.02 %}bar-low{% else %}bar-high{% endif %}" style="width:{{ [((peli.expl_dir / 0.05) * 100)|round(0)|int, 100]|min }}%"></div></div>
+                            <span class="expl-bar-pct">{{ (peli.expl_dir * 100) | round(1) }}%</span>
+                          </div>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td><i class="fa-solid fa-align-left me-1 text-primary"></i>Semantica</td>
+                        <td>20%</td>
+                        <td><span class="expl-shared">Sinopsis + titulo + keywords</span></td>
+                        <td>
+                          <div class="expl-bar-wrap">
+                            <div class="expl-bar-bg"><div class="expl-bar-fill {% if peli.expl_semantic < 0.07 %}bar-low{% elif peli.expl_semantic < 0.13 %}bar-mid{% else %}bar-high{% endif %}" style="width:{{ [((peli.expl_semantic / 0.20) * 100)|round(0)|int, 100]|min }}%"></div></div>
+                            <span class="expl-bar-pct">{{ (peli.expl_semantic * 100) | round(1) }}%</span>
+                          </div>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td><i class="fa-solid fa-bullseye me-1" style="color:#34d399"></i>Afinidad tematica</td>
+                        <td>10%</td>
+                        <td><span class="expl-shared">Franquicia / personaje / coleccion</span></td>
+                        <td>
+                          <div class="expl-bar-wrap">
+                            <div class="expl-bar-bg"><div class="expl-bar-fill {% if peli.expl_intent < 0.04 %}bar-low{% elif peli.expl_intent < 0.07 %}bar-mid{% else %}bar-high{% endif %}" style="width:{{ [((peli.expl_intent / 0.10) * 100)|round(0)|int, 100]|min }}%"></div></div>
+                            <span class="expl-bar-pct">{{ (peli.expl_intent * 100) | round(1) }}%</span>
+                          </div>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td colspan="4" class="text-secondary small pt-2 expl-section-caption">COMPORTAMIENTO DEL USUARIO (25%)</td>
+                      </tr>
+                      <tr>
+                        <td><i class="fa-solid fa-heart me-1" style="color:#f472b6"></i>Reaccion</td>
+                        <td>15%</td>
+                        <td><span class="{% if peli.val_reaccion == 1.0 %}expl-shared{% elif peli.val_reaccion > 0 %}expl-shared{% else %}expl-none{% endif %}">{{ peli.reaccion_label }}</span></td>
+                        <td>
+                          <div class="expl-bar-wrap">
+                            <div class="expl-bar-bg"><div class="expl-bar-fill {% if peli.expl_reaccion < 0.05 %}bar-low{% elif peli.expl_reaccion < 0.10 %}bar-mid{% else %}bar-high{% endif %}" style="width:{{ [((peli.expl_reaccion / 0.15) * 100)|round(0)|int, 100]|min }}%"></div></div>
+                            <span class="expl-bar-pct">{{ (peli.expl_reaccion * 100) | round(1) }}%</span>
+                          </div>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td><i class="fa-solid fa-clock me-1" style="color:#60a5fa"></i>Tiempo visto</td>
+                        <td>10%</td>
+                        <td><span class="expl-shared">{{ (peli.val_tiempo * 100) | round(0) }}% de la pelicula</span></td>
+                        <td>
+                          <div class="expl-bar-wrap">
+                            <div class="expl-bar-bg"><div class="expl-bar-fill {% if peli.expl_tiempo < 0.04 %}bar-low{% elif peli.expl_tiempo < 0.07 %}bar-mid{% else %}bar-high{% endif %}" style="width:{{ [((peli.expl_tiempo / 0.10) * 100)|round(0)|int, 100]|min }}%"></div></div>
+                            <span class="expl-bar-pct">{{ (peli.expl_tiempo * 100) | round(1) }}%</span>
+                          </div>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+
+                  <div class="expl-divider my-2"></div>
+                  <div class="d-flex justify-content-between align-items-center mb-3">
+                    <span class="fw-bold">SCORE FINAL</span>
+                    <div class="expl-score-final">{{ (peli.score_final * 100) | round(1) }}%</div>
+                  </div>
+
+                  <!-- Tecnicas IR -->
+                  <div class="ir-panel mb-3">
+                    <div class="ir-panel-title">
+                      <i class="fa-solid fa-flask"></i> TECNICAS DE RECUPERACION DE INFORMACION
+                    </div>
+                    <div class="ir-technique-row">
+                      <span class="ir-tech-name"><i class="fa-solid fa-circle-nodes me-1" style="color:#93c5fd"></i>VSM (Espacio Vectorial)</span>
+                      <span class="ir-tech-desc">Similitud coseno sobre vectores de generos, keywords y sinopsis</span>
+                      <span class="ir-tech-val">{{ (peli.expl_semantic * 100) | round(1) }}%</span>
+                    </div>
+                    <div class="ir-technique-row">
+                      <span class="ir-tech-name"><i class="fa-solid fa-weight-hanging me-1" style="color:#fcd34d"></i>TF-IDF (historial)</span>
+                      <span class="ir-tech-desc">Pondera terminos raros del historial; aplicado en Jaccard ponderado</span>
+                      <span class="ir-tech-val">{{ ((peli.expl_cast + peli.expl_genres) * 100) | round(1) }}%</span>
+                    </div>
+                    <div class="ir-technique-row">
+                      <span class="ir-tech-name"><i class="fa-solid fa-diagram-venn me-1" style="color:#4ade80"></i>Jaccard ponderado</span>
+                      <span class="ir-tech-desc">Reparto y generos; pesos IDF de {{ historial | length if historial else 0 }} peliculas del historial</span>
+                      <span class="ir-tech-val">{{ ((peli.expl_cast + peli.expl_genres) * 100) | round(1) }}%</span>
+                    </div>
+                    <div class="ir-technique-row">
+                      <span class="ir-tech-name"><i class="fa-solid fa-magnifying-glass me-1" style="color:#f97316"></i>BM25</span>
+                      <span class="ir-tech-desc">Ranking probabilistico usado en busqueda de candidatas por texto</span>
+                      <span class="ir-tech-val val-na">—</span>
+                    </div>
+                    <div class="ir-technique-row">
+                      <span class="ir-tech-name"><i class="fa-solid fa-code-branch me-1" style="color:#a78bfa"></i>Modelo Booleano</span>
+                      <span class="ir-tech-desc">Busqueda avanzada AND/OR/NOT sobre generos, keywords, actores</span>
+                      <span class="ir-tech-val val-na">—</span>
+                    </div>
+                    <div class="ir-technique-row">
+                      <span class="ir-tech-name"><i class="fa-solid fa-share-nodes me-1" style="color:#34d399"></i>Grafo de transiciones</span>
+                      <span class="ir-tech-desc">Distancia entre generos (0=mismo, 0.3=directo, 0.6=indirecto)</span>
+                      <span class="ir-tech-val val-na">—</span>
+                    </div>
+                  </div>
+
+                  <!-- Funcion de evaluacion -->
+                  <div class="p-3 mb-3 expl-formula-card">
+                    <div class="text-secondary mb-1 expl-formula-title">FUNCION DE EVALUACION</div>
+                    <div>
+                      <span style="color:#4ade80">f(x)</span> =
+                      <span style="color:#60a5fa">0.15</span>&middot;<em>Reparto</em> +
+                      <span style="color:#60a5fa">0.10</span>&middot;<em>Saga</em> +
+                      <span style="color:#60a5fa">0.15</span>&middot;<em>Genero</em> +
+                      <span style="color:#60a5fa">0.05</span>&middot;<em>Director</em> +
+                      <span style="color:#60a5fa">0.20</span>&middot;<em>Semantica</em> +
+                      <span style="color:#60a5fa">0.10</span>&middot;<em>Afinidad</em> +
+                      <span style="color:#60a5fa">0.15</span>&middot;<em>Reaccion</em> +
+                      <span style="color:#60a5fa">0.10</span>&middot;<em>Tiempo</em>
+                    </div>
+                    <div class="expl-divider my-1"></div>
+                    <div class="expl-formula-line"><span style="color:#93c5fd">Reparto/Genero</span> = Jaccard ponderado IDF &nbsp; <span style="color:#c4b5fd">Saga</span> = {1,0} &nbsp; <span style="color:#fca5a5">Director</span> = {1,0}</div>
+                    <div class="expl-formula-line"><span style="color:#fcd34d">Semantica</span> = 0.45·kw + 0.35·sinopsis + 0.20·titulo &nbsp; <span style="color:#34d399">Afinidad</span> = sim franquicia/coleccion</div>
+                    <div class="expl-formula-line">Agregacion historial = 0.65·mejor + 0.35·segundo (robust top-2)</div>
+                  </div>
+
+                  <button class="btn-watch-sm" onclick="cerrarYWatch(_recomendados[{{ loop.index0 }}], 'explModal{{ loop.index }}')">
+                    <i class="fa-solid fa-play me-1"></i> Ver esta pelicula
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      {% endfor %} {% endif %}
+
+      <!-- ---- RECOMENDACIONES SECUNDARIAS ---- -->
+      {% if recomendados_sec %}
+      <script>
+        var _recomendados_sec = {{ recomendados_sec | tojson }};
+      </script>
+      <h4 class="section-title">
+        {% if tipo_sec == 'te_encanto' %}
+        <i class="fa-solid fa-heart text-danger"></i>
+        Algunas peliculas similares porque te encantó
+        <span class="text-danger">{{ ultima_peli }}</span>
+        {% elif tipo_sec == 'te_gusto' %}
+        <i class="fa-solid fa-thumbs-up text-success"></i>
+        Algunas peliculas similares porque te gustó
+        <span class="text-success">{{ ultima_peli }}</span>
+        {% else %}
+        <i class="fa-solid fa-shuffle" style="color: #a78bfa"></i>
+        Algo diferente a
+        <span style="color: #a78bfa">{{ ultima_peli }}</span>
+        {% endif %}
+      </h4>
+      {% if tipo_sec == 'no_te_gusto' %}
+      <div class="text-secondary small mb-2" style="margin-top: -10px">
+        Basado en descubrimiento: películas diferentes a tu última selección.
+      </div>
+      {% else %}
+      <div class="text-secondary small mb-2" style="margin-top: -10px">
+        Basado en tu última película vista (top 1 al 10 de
+        similares/recomendadas).
+      </div>
+      {% endif %}
+      <div class="scroll-row">
+        {% for peli in recomendados_sec %}
+        <div
+          class="movie-card"
+          data-bs-toggle="modal"
+          data-bs-target="#explSecModal{{ loop.index }}"
+        >
+          {% if peli.poster_path %}
+          <img
+            src="https://image.tmdb.org/t/p/w342{{ peli.poster_path }}"
+            class="movie-poster"
+            loading="lazy"
+            onerror="
+              this.style.display = 'none';
+              this.nextElementSibling.style.display = 'flex';
+            "
+          />
+          <div class="no-poster" style="display: none">
+            <i class="fa-solid fa-film fa-2x"></i>
+          </div>
+          {% else %}
+          <div class="no-poster"><i class="fa-solid fa-film fa-2x"></i></div>
+          {% endif %}
+          <div class="card-title fw-bold">{{ peli.title }}</div>
+          <div class="match-badge">
+            {% if tipo_sec == 'no_te_gusto' %}{{ (peli.score_final * 100) | round(1) }}% Descubrimiento{% else %}{{ (peli.score_final * 100) | round(1) }}% Match{% endif %}
+          </div>
+          {% if tipo_sec == 'no_te_gusto' %}
+          <div class="ir-badge" style="border-color:rgba(167,139,250,.3);color:#a78bfa;background:rgba(167,139,250,.1);">
+            <i class="fa-solid fa-shuffle" style="font-size:.6rem"></i> Jaccard {{ ((peli.expl_cast + peli.expl_genres) * 100)|round(0)|int }}%
+            <span class="ir-tooltip">Jaccard simple (diferencia de generos/reparto) &bull; Grafo transiciones generos</span>
+          </div>
+          {% else %}
+          <div class="ir-badge">
+            <i class="fa-solid fa-flask" style="font-size:.6rem"></i>
+            {% set _scores2 = [('Sem', peli.expl_semantic), ('Cast', peli.expl_cast), ('Gen', peli.expl_genres), ('Intent', peli.expl_intent), ('Saga', peli.expl_saga)] | sort(attribute=1, reverse=true) %}
+            {{ _scores2[0][0] }} {{ (_scores2[0][1] * 100) | round(0) | int }}%
+            <span class="ir-tooltip">VSM {{ (peli.expl_semantic * 100)|round(1) }}% &bull; Jaccard {{ ((peli.expl_cast + peli.expl_genres) * 100)|round(1) }}% &bull; TF-IDF aplicado</span>
+          </div>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+
+      <!-- Modales de explicacion secundarios -->
+      {% for peli in recomendados_sec %}
+      <div
+        class="modal fade"
+        id="explSecModal{{ loop.index }}"
+        tabindex="-1"
+        data-movie-id="{{ peli.id }}"
+      >
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+          <div class="modal-content">
+            <div class="modal-body p-0">
+              <div class="row g-0">
+                <div class="col-md-4 p-3 text-center">
+                  {% if peli.poster_path %}
+                  <img
+                    src="https://image.tmdb.org/t/p/w500{{ peli.poster_path }}"
+                    class="expl-poster"
+                    onerror="
+                      this.style.display = 'none';
+                      this.nextElementSibling.style.display = 'flex';
+                    "
+                  />
+                  <div
+                    class="no-poster mx-auto"
+                    style="max-width: 220px; display: none"
+                  >
+                    <i class="fa-solid fa-film fa-3x"></i>
+                  </div>
+                  {% else %}
+                  <div class="no-poster mx-auto" style="max-width: 220px">
+                    <i class="fa-solid fa-film fa-3x"></i>
+                  </div>
+                  {% endif %}
+                </div>
+                <div class="col-md-8 p-4">
+                  <button
+                    type="button"
+                    class="btn-close btn-close-white float-end"
+                    data-bs-dismiss="modal"
+                  ></button>
+                  <h4 class="fw-bold mb-1">{{ peli.title }}</h4>
+                  <p class="text-secondary small mb-3">
+                    {{ peli.genres_list | join(', ') }} &middot; {{ peli.runtime
+                    | int }} min &middot;
+                    <i class="fa-solid fa-star text-warning"></i> {{
+                    peli.vote_average }}
+                  </p>
+
+                  <div class="expl-detail-block mb-3">
+                    <div class="expl-detail-label">SINOPSIS</div>
+                    <div
+                      class="expl-detail-overview"
+                      data-role="modal-overview"
+                    >
+                      {{ peli.overview or 'Sinopsis no disponible' }}
+                    </div>
+                    <div class="expl-detail-label mt-2">KEYWORDS</div>
+                    <div
+                      class="expl-detail-keywords"
+                      data-role="modal-keywords"
+                    >
+                      {% if peli.keywords_list %}{{ peli.keywords_list[:8] |
+                      join(' · ') }}{% else %}Keywords no disponibles{% endif %}
+                    </div>
+                  </div>
+
+                  {% if tipo_sec == 'no_te_gusto' %}
+                  <!-- ===== TABLA DE DESCUBRIMIENTO ===== -->
+                  <h6 style="color:#a78bfa" class="mb-3">
+                    <i class="fa-solid fa-shuffle me-1"></i> Matriz Descubrimiento (5 Variables = 100%)
+                  </h6>
+                  <table class="expl-table">
+                    <thead><tr><th>Variable</th><th>Peso</th><th>Detalle</th><th class="text-end">Score</th></tr></thead>
+                    <tbody>
+                      <tr><td colspan="4" class="text-secondary small pt-2 expl-section-caption">NOVEDAD (80%)</td></tr>
+                      <tr>
+                        <td><i class="fa-solid fa-masks-theater me-1 text-warning"></i>Dif. Generos</td>
+                        <td>30%</td>
+                        <td>{% if peli.shared_genres %}<span class="expl-none">Comparten: {{ peli.shared_genres | join(', ') }}</span>{% else %}<span class="expl-shared">Totalmente diferentes <i class="fa-solid fa-check"></i></span>{% endif %}</td>
+                        <td>
+                          <div class="expl-bar-wrap">
+                            <div class="expl-bar-bg"><div class="expl-bar-fill {% if peli.expl_genres < 0.12 %}bar-low{% elif peli.expl_genres < 0.22 %}bar-mid{% else %}bar-high{% endif %}" style="width:{{ [((peli.expl_genres / 0.30) * 100)|round(0)|int, 100]|min }}%"></div></div>
+                            <span class="expl-bar-pct">{{ (peli.expl_genres * 100) | round(1) }}%</span>
+                          </div>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td><i class="fa-solid fa-users me-1 text-info"></i>Dif. Reparto</td>
+                        <td>30%</td>
+                        <td>{% if peli.shared_cast %}<span class="expl-none">Comparten: {{ peli.shared_cast | join(', ') }}</span>{% else %}<span class="expl-shared">Reparto nuevo <i class="fa-solid fa-check"></i></span>{% endif %}</td>
+                        <td>
+                          <div class="expl-bar-wrap">
+                            <div class="expl-bar-bg"><div class="expl-bar-fill {% if peli.expl_cast < 0.12 %}bar-low{% elif peli.expl_cast < 0.22 %}bar-mid{% else %}bar-high{% endif %}" style="width:{{ [((peli.expl_cast / 0.30) * 100)|round(0)|int, 100]|min }}%"></div></div>
+                            <span class="expl-bar-pct">{{ (peli.expl_cast * 100) | round(1) }}%</span>
+                          </div>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td><i class="fa-solid fa-clapperboard me-1 text-danger"></i>Dif. Director</td>
+                        <td>20%</td>
+                        <td>{% if not peli.same_director %}<span class="expl-shared">Diferente <i class="fa-solid fa-check"></i></span>{% else %}<span class="expl-none">{{ peli.director }} (mismo) <i class="fa-solid fa-xmark"></i></span>{% endif %}</td>
+                        <td>
+                          <div class="expl-bar-wrap">
+                            <div class="expl-bar-bg"><div class="expl-bar-fill {% if peli.expl_dir < 0.08 %}bar-low{% else %}bar-high{% endif %}" style="width:{{ [((peli.expl_dir / 0.20) * 100)|round(0)|int, 100]|min }}%"></div></div>
+                            <span class="expl-bar-pct">{{ (peli.expl_dir * 100) | round(1) }}%</span>
+                          </div>
+                        </td>
+                      </tr>
+                      <tr><td colspan="4" class="text-secondary small pt-2 expl-section-caption">CALIDAD Y CONTEXTO (20%)</td></tr>
+                      <tr>
+                        <td><i class="fa-solid fa-star me-1 text-warning"></i>Calificacion</td>
+                        <td>10%</td>
+                        <td><span class="expl-shared"><i class="fa-solid fa-star text-warning"></i> {{ peli.vote_average }} / 10</span></td>
+                        <td>
+                          <div class="expl-bar-wrap">
+                            <div class="expl-bar-bg"><div class="expl-bar-fill {% if peli.expl_quality < 0.04 %}bar-low{% elif peli.expl_quality < 0.07 %}bar-mid{% else %}bar-high{% endif %}" style="width:{{ [((peli.expl_quality / 0.10) * 100)|round(0)|int, 100]|min }}%"></div></div>
+                            <span class="expl-bar-pct">{{ (peli.expl_quality * 100) | round(1) }}%</span>
+                          </div>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td><i class="fa-solid fa-clock me-1" style="color:#60a5fa"></i>Tiempo visto</td>
+                        <td>10%</td>
+                        <td><span class="expl-shared">{{ (peli.val_tiempo * 100) | round(0) }}% de la pelicula base</span></td>
+                        <td>
+                          <div class="expl-bar-wrap">
+                            <div class="expl-bar-bg"><div class="expl-bar-fill {% if peli.expl_tiempo < 0.04 %}bar-low{% elif peli.expl_tiempo < 0.07 %}bar-mid{% else %}bar-high{% endif %}" style="width:{{ [((peli.expl_tiempo / 0.10) * 100)|round(0)|int, 100]|min }}%"></div></div>
+                            <span class="expl-bar-pct">{{ (peli.expl_tiempo * 100) | round(1) }}%</span>
+                          </div>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+
+                  <div class="expl-divider my-2"></div>
+                  <div class="d-flex justify-content-between align-items-center mb-3">
+                    <span class="fw-bold">SCORE DESCUBRIMIENTO</span>
+                    <div class="expl-score-final">{{ (peli.score_final * 100) | round(1) }}%</div>
+                  </div>
+
+                  <!-- Panel IR Descubrimiento -->
+                  <div class="ir-panel mb-3">
+                    <div class="ir-panel-title"><i class="fa-solid fa-flask"></i> TECNICAS IR APLICADAS</div>
+                    <div class="ir-technique-row">
+                      <span class="ir-tech-name"><i class="fa-solid fa-diagram-venn me-1" style="color:#4ade80"></i>Jaccard simple</span>
+                      <span class="ir-tech-desc">Diferencia de conjuntos genero/reparto contra historial</span>
+                      <span class="ir-tech-val">{{ ((peli.expl_cast + peli.expl_genres) * 100) | round(1) }}%</span>
+                    </div>
+                    <div class="ir-technique-row">
+                      <span class="ir-tech-name"><i class="fa-solid fa-share-nodes me-1" style="color:#a78bfa"></i>Grafo transiciones</span>
+                      <span class="ir-tech-desc">Diversificacion por distancia de generos (0.3 directo, 0.6 indirecto)</span>
+                      <span class="ir-tech-val val-na">—</span>
+                    </div>
+                    <div class="ir-technique-row">
+                      <span class="ir-tech-name"><i class="fa-solid fa-star me-1" style="color:#fbbf24"></i>Calidad TMDB</span>
+                      <span class="ir-tech-desc">vote_average / 10 como proxy de relevancia editorial</span>
+                      <span class="ir-tech-val">{{ (peli.expl_quality * 100) | round(1) }}%</span>
+                    </div>
+                  </div>
+
+                  <!-- Score exploracion arbol binario -->
+                  <div class="expl-score-exp mb-3">
+                    <div class="expl-score-exp-title"><i class="fa-solid fa-tree me-1"></i> SCORE EXPLORACION (rama derecha del arbol binario)</div>
+                    <div class="expl-score-exp-formula">
+                      SCORE_EXP = (score_depth &times; 0.50) + (peso_transicion &times; 0.30) + (novedad &times; 0.20)
+                    </div>
+                    <div class="expl-formula-line mt-1">
+                      <span style="color:#c4b5fd">peso_transicion</span> = 1 &minus; distancia_generos &nbsp;
+                      <span style="color:#4ade80">novedad</span> = complemento de similitud con historial
+                    </div>
+                  </div>
+
+                  <div class="p-3 mb-3 expl-formula-card">
+                    <div class="text-secondary mb-1 expl-formula-title">FUNCION DE EVALUACION</div>
+                    <div>
+                      <span style="color:#4ade80">f(x)</span> =
+                      <span style="color:#60a5fa">0.30</span>&middot;<em>DifGenero</em> +
+                      <span style="color:#60a5fa">0.30</span>&middot;<em>DifReparto</em> +
+                      <span style="color:#60a5fa">0.20</span>&middot;<em>DifDirector</em> +
+                      <span style="color:#60a5fa">0.10</span>&middot;<em>Calidad</em> +
+                      <span style="color:#60a5fa">0.10</span>&middot;<em>Tiempo</em>
+                    </div>
+                    <div class="expl-divider my-1"></div>
+                    <div class="expl-formula-line"><span style="color:#fcd34d">DifGenero</span> = 1 &minus; (|gen&cap;| / |gen_base|) &nbsp; <span style="color:#93c5fd">DifReparto</span> = 1 &minus; (|cast&cap;| / |cast_base|)</div>
+                  </div>
+
+                  {% else %}
+                  <!-- ===== TABLA SIMILARIDAD SECUNDARIA ===== -->
+                  <h6 class="text-info mb-3">
+                    <i class="fa-solid fa-brain me-1"></i> Matriz (8 Variables = 100%)
+                  </h6>
+                  <table class="expl-table">
+                    <thead><tr><th>Variable</th><th>Peso</th><th>Detalle</th><th class="text-end">Score</th></tr></thead>
+                    <tbody>
+                      <tr><td colspan="4" class="text-secondary small pt-2 expl-section-caption">CONTENIDO (75%)</td></tr>
+                      <tr>
+                        <td><i class="fa-solid fa-users me-1 text-info"></i>Reparto</td>
+                        <td>15%</td>
+                        <td>{% if peli.shared_cast %}<span class="expl-shared">{{ peli.shared_cast | join(', ') }}</span>{% else %}<span class="expl-none">Ninguno en comun</span>{% endif %}</td>
+                        <td>
+                          <div class="expl-bar-wrap">
+                            <div class="expl-bar-bg"><div class="expl-bar-fill {% if peli.expl_cast < 0.05 %}bar-low{% elif peli.expl_cast < 0.10 %}bar-mid{% else %}bar-high{% endif %}" style="width:{{ [((peli.expl_cast / 0.15) * 100)|round(0)|int, 100]|min }}%"></div></div>
+                            <span class="expl-bar-pct">{{ (peli.expl_cast * 100) | round(1) }}%</span>
+                          </div>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td><i class="fa-solid fa-layer-group me-1" style="color:#a78bfa"></i>Saga</td>
+                        <td>10%</td>
+                        <td>{% if peli.same_saga %}<span class="expl-shared">{{ peli.saga_name }} <i class="fa-solid fa-check"></i></span>{% else %}<span class="expl-none">{% if peli.saga_name %}{{ peli.saga_name }}{% else %}Sin saga{% endif %} <i class="fa-solid fa-xmark"></i></span>{% endif %}</td>
+                        <td>
+                          <div class="expl-bar-wrap">
+                            <div class="expl-bar-bg"><div class="expl-bar-fill {% if peli.expl_saga < 0.04 %}bar-low{% elif peli.expl_saga < 0.07 %}bar-mid{% else %}bar-high{% endif %}" style="width:{{ [((peli.expl_saga / 0.10) * 100)|round(0)|int, 100]|min }}%"></div></div>
+                            <span class="expl-bar-pct">{{ (peli.expl_saga * 100) | round(1) }}%</span>
+                          </div>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td><i class="fa-solid fa-masks-theater me-1 text-warning"></i>Generos</td>
+                        <td>15%</td>
+                        <td>{% if peli.shared_genres %}<span class="expl-shared">{{ peli.shared_genres | join(', ') }}</span>{% else %}<span class="expl-none">Ninguno en comun</span>{% endif %}</td>
+                        <td>
+                          <div class="expl-bar-wrap">
+                            <div class="expl-bar-bg"><div class="expl-bar-fill {% if peli.expl_genres < 0.05 %}bar-low{% elif peli.expl_genres < 0.10 %}bar-mid{% else %}bar-high{% endif %}" style="width:{{ [((peli.expl_genres / 0.15) * 100)|round(0)|int, 100]|min }}%"></div></div>
+                            <span class="expl-bar-pct">{{ (peli.expl_genres * 100) | round(1) }}%</span>
+                          </div>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td><i class="fa-solid fa-clapperboard me-1 text-danger"></i>Director</td>
+                        <td>5%</td>
+                        <td>{% if peli.same_director %}<span class="expl-shared">{{ peli.director }} <i class="fa-solid fa-check"></i></span>{% else %}<span class="expl-none">{{ peli.director }} <i class="fa-solid fa-xmark"></i></span>{% endif %}</td>
+                        <td>
+                          <div class="expl-bar-wrap">
+                            <div class="expl-bar-bg"><div class="expl-bar-fill {% if peli.expl_dir < 0.02 %}bar-low{% else %}bar-high{% endif %}" style="width:{{ [((peli.expl_dir / 0.05) * 100)|round(0)|int, 100]|min }}%"></div></div>
+                            <span class="expl-bar-pct">{{ (peli.expl_dir * 100) | round(1) }}%</span>
+                          </div>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td><i class="fa-solid fa-align-left me-1 text-primary"></i>Semantica</td>
+                        <td>20%</td>
+                        <td><span class="expl-shared">Sinopsis + titulo + keywords</span></td>
+                        <td>
+                          <div class="expl-bar-wrap">
+                            <div class="expl-bar-bg"><div class="expl-bar-fill {% if peli.expl_semantic < 0.07 %}bar-low{% elif peli.expl_semantic < 0.13 %}bar-mid{% else %}bar-high{% endif %}" style="width:{{ [((peli.expl_semantic / 0.20) * 100)|round(0)|int, 100]|min }}%"></div></div>
+                            <span class="expl-bar-pct">{{ (peli.expl_semantic * 100) | round(1) }}%</span>
+                          </div>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td><i class="fa-solid fa-bullseye me-1" style="color:#34d399"></i>Afinidad tematica</td>
+                        <td>10%</td>
+                        <td><span class="expl-shared">Franquicia / personaje / coleccion</span></td>
+                        <td>
+                          <div class="expl-bar-wrap">
+                            <div class="expl-bar-bg"><div class="expl-bar-fill {% if peli.expl_intent < 0.04 %}bar-low{% elif peli.expl_intent < 0.07 %}bar-mid{% else %}bar-high{% endif %}" style="width:{{ [((peli.expl_intent / 0.10) * 100)|round(0)|int, 100]|min }}%"></div></div>
+                            <span class="expl-bar-pct">{{ (peli.expl_intent * 100) | round(1) }}%</span>
+                          </div>
+                        </td>
+                      </tr>
+                      <tr><td colspan="4" class="text-secondary small pt-2 expl-section-caption">COMPORTAMIENTO DEL USUARIO (25%)</td></tr>
+                      <tr>
+                        <td><i class="fa-solid fa-heart me-1" style="color:#f472b6"></i>Reaccion</td>
+                        <td>15%</td>
+                        <td><span class="{% if peli.val_reaccion == 1.0 %}expl-shared{% elif peli.val_reaccion > 0 %}expl-shared{% else %}expl-none{% endif %}">{{ peli.reaccion_label }}</span></td>
+                        <td>
+                          <div class="expl-bar-wrap">
+                            <div class="expl-bar-bg"><div class="expl-bar-fill {% if peli.expl_reaccion < 0.05 %}bar-low{% elif peli.expl_reaccion < 0.10 %}bar-mid{% else %}bar-high{% endif %}" style="width:{{ [((peli.expl_reaccion / 0.15) * 100)|round(0)|int, 100]|min }}%"></div></div>
+                            <span class="expl-bar-pct">{{ (peli.expl_reaccion * 100) | round(1) }}%</span>
+                          </div>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td><i class="fa-solid fa-clock me-1" style="color:#60a5fa"></i>Tiempo visto</td>
+                        <td>10%</td>
+                        <td><span class="expl-shared">{{ (peli.val_tiempo * 100) | round(0) }}% de la pelicula</span></td>
+                        <td>
+                          <div class="expl-bar-wrap">
+                            <div class="expl-bar-bg"><div class="expl-bar-fill {% if peli.expl_tiempo < 0.04 %}bar-low{% elif peli.expl_tiempo < 0.07 %}bar-mid{% else %}bar-high{% endif %}" style="width:{{ [((peli.expl_tiempo / 0.10) * 100)|round(0)|int, 100]|min }}%"></div></div>
+                            <span class="expl-bar-pct">{{ (peli.expl_tiempo * 100) | round(1) }}%</span>
+                          </div>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+
+                  <div class="expl-divider my-2"></div>
+                  <div class="d-flex justify-content-between align-items-center mb-3">
+                    <span class="fw-bold">SCORE FINAL</span>
+                    <div class="expl-score-final">{{ (peli.score_final * 100) | round(1) }}%</div>
+                  </div>
+
+                  <!-- Panel IR Similaridad secundaria -->
+                  <div class="ir-panel mb-3">
+                    <div class="ir-panel-title"><i class="fa-solid fa-flask"></i> TECNICAS IR APLICADAS</div>
+                    <div class="ir-technique-row">
+                      <span class="ir-tech-name"><i class="fa-solid fa-circle-nodes me-1" style="color:#93c5fd"></i>VSM</span>
+                      <span class="ir-tech-desc">Similitud coseno sobre vectores de generos, keywords y sinopsis</span>
+                      <span class="ir-tech-val">{{ (peli.expl_semantic * 100) | round(1) }}%</span>
+                    </div>
+                    <div class="ir-technique-row">
+                      <span class="ir-tech-name"><i class="fa-solid fa-diagram-venn me-1" style="color:#4ade80"></i>Jaccard ponderado</span>
+                      <span class="ir-tech-desc">Reparto y generos con pesos IDF del historial</span>
+                      <span class="ir-tech-val">{{ ((peli.expl_cast + peli.expl_genres) * 100) | round(1) }}%</span>
+                    </div>
+                    <div class="ir-technique-row">
+                      <span class="ir-tech-name"><i class="fa-solid fa-share-nodes me-1" style="color:#a78bfa"></i>Grafo transiciones</span>
+                      <span class="ir-tech-desc">score_exp = depth&times;0.5 + transicion&times;0.3 + novedad&times;0.2</span>
+                      <span class="ir-tech-val val-na">—</span>
+                    </div>
+                  </div>
+
+                  <div class="p-3 mb-3 expl-formula-card">
+                    <div class="text-secondary mb-1 expl-formula-title">FUNCION DE EVALUACION</div>
+                    <div>
+                      <span style="color:#4ade80">f(x)</span> =
+                      <span style="color:#60a5fa">0.15</span>&middot;<em>Reparto</em> +
+                      <span style="color:#60a5fa">0.10</span>&middot;<em>Saga</em> +
+                      <span style="color:#60a5fa">0.15</span>&middot;<em>Genero</em> +
+                      <span style="color:#60a5fa">0.05</span>&middot;<em>Director</em> +
+                      <span style="color:#60a5fa">0.20</span>&middot;<em>Semantica</em> +
+                      <span style="color:#60a5fa">0.10</span>&middot;<em>Afinidad</em> +
+                      <span style="color:#60a5fa">0.15</span>&middot;<em>Reaccion</em> +
+                      <span style="color:#60a5fa">0.10</span>&middot;<em>Tiempo</em>
+                    </div>
+                    <div class="expl-divider my-1"></div>
+                    <div class="expl-formula-line">Agregacion historial = 0.65·mejor + 0.35·segundo (robust top-2)</div>
+                  </div>
+
+                  {% endif %}
+
+                  <button
+                    class="btn-watch-sm"
+                    onclick="cerrarYWatch(_recomendados_sec[{{ loop.index0 }}], 'explSecModal{{ loop.index }}')"
+                  >
+                    <i class="fa-solid fa-play me-1"></i> Ver esta pelicula
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      {% endfor %} {% endif %}
+
+      <!-- ---- TOP 10 POPULARES ---- -->
+      <script>
+        var _top10 = {{ top_10 | tojson }};
+      </script>
+      <h4 class="section-title">
+        <i class="fa-solid fa-fire text-danger"></i> Top 10 Populares
+      </h4>
+      <div class="scroll-row">
+        {% for peli in top_10 %}
+        <div class="movie-card" onclick="abrirInfo(_top10[{{ loop.index0 }}])">
+          {% if peli.poster_path %}
+          <img
+            src="https://image.tmdb.org/t/p/w342{{ peli.poster_path }}"
+            class="movie-poster"
+            loading="lazy"
+            onerror="
+              this.style.display = 'none';
+              this.nextElementSibling.style.display = 'flex';
+            "
+          />
+          <div class="no-poster" style="display: none">
+            <i class="fa-solid fa-film fa-2x"></i>
+          </div>
+          {% else %}
+          <div class="no-poster"><i class="fa-solid fa-film fa-2x"></i></div>
+          {% endif %}
+          <div class="card-title">{{ peli.title }}</div>
+          <div class="card-sub">
+            <i class="fa-solid fa-star text-warning"></i> {{ peli.vote_average
+            }}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <!-- ============ MODAL: INFO DE PELICULA ============ -->
+    <div class="modal fade" id="infoModal" tabindex="-1">
+      <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content">
+          <div class="modal-body p-0">
+            <div class="row g-0">
+              <div class="col-md-4 p-3 text-center">
+                <img
+                  id="infoPoster"
+                  src=""
+                  class="info-poster"
+                  style="max-height: 420px"
+                  onerror="
+                    this.style.display = 'none';
+                    document.getElementById(
+                      'infoPosterFallback',
+                    ).style.display = 'flex';
+                  "
+                />
+                <div
+                  id="infoPosterFallback"
+                  class="no-poster mx-auto"
+                  style="max-width: 220px; min-height: 300px; display: none"
+                >
+                  <i class="fa-solid fa-film fa-3x"></i>
+                </div>
+              </div>
+              <div class="col-md-8 p-4 d-flex flex-column">
+                <button
+                  type="button"
+                  class="btn-close btn-close-white float-end"
+                  data-bs-dismiss="modal"
+                ></button>
+                <h3 id="infoTitle" class="fw-bold mb-3"></h3>
+                <div class="info-label">GENEROS</div>
+                <div id="infoGenres" class="info-value"></div>
+                <div class="info-label">REPARTO PRINCIPAL</div>
+                <div id="infoCast" class="info-value"></div>
+                <div class="info-label">DIRECTOR</div>
+                <div id="infoDirector" class="info-value"></div>
+                <div class="d-flex gap-4 mb-3">
+                  <div>
+                    <div class="info-label">DURACION</div>
+                    <div id="infoRuntime" class="info-value"></div>
+                  </div>
+                  <div>
+                    <div class="info-label">CALIFICACION</div>
+                    <div id="infoRating" class="info-value"></div>
+                  </div>
+                </div>
+                <div class="info-label">SINOPSIS</div>
+                <div id="infoOverview" class="info-value mb-2"></div>
+                <div class="info-label">KEYWORDS</div>
+                <div id="infoKeywords" class="info-value mb-3"></div>
+                <div class="mt-auto">
+                  <button
+                    id="infoWatchBtn"
+                    class="btn-watch"
+                    onclick="abrirWatchDesdeInfo()"
+                  >
+                    <i class="fa-solid fa-play me-2"></i>VER PELICULA
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ MODAL: VER PELICULA (minutos + reaccion) ============ -->
+    <div class="modal fade" id="watchModal" tabindex="-1">
+      <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+          <form id="watchForm" action="/recomendar" method="POST">
+            <div class="modal-body p-4 text-center">
+              <h4 id="watchTitle" class="fw-bold mb-1"></h4>
+              <p class="text-secondary small mb-4">
+                Dinos tu experiencia para recomendarte peliculas
+              </p>
+              <input type="hidden" name="titulo" id="watchTitulo" />
+              <input type="hidden" name="movie_id" id="watchMovieId" />
+
+              <p class="mb-2 text-secondary small">
+                Hasta que minuto la viste?
+              </p>
+              <div class="range-value mb-1" id="watchRangeValue">0 min</div>
+              <div class="px-3">
+                <input
+                  type="range"
+                  class="form-range"
+                  name="minutos"
+                  id="watchRange"
+                  min="1"
+                  value="0"
+                  oninput="
+                    document.getElementById('watchRangeValue').innerText =
+                      this.value + ' min'
+                  "
+                />
+              </div>
+              <div
+                class="d-flex justify-content-between small text-secondary px-3 mb-4"
+              >
+                <span>1 min</span>
+                <span id="watchMaxLabel"></span>
+              </div>
+
+              <p class="mb-3 text-secondary small">Que te parecio?</p>
+              <div class="reaction-group mb-2">
+                <div>
+                  <input
+                    type="radio"
+                    class="btn-check"
+                    name="reaccion"
+                    id="rDislike"
+                    value="dislike"
+                  />
+                  <label class="reaction-btn" for="rDislike">
+                    <i class="fa-solid fa-thumbs-down"></i
+                    ><span>No me gusto</span>
+                  </label>
+                </div>
+                <div>
+                  <input
+                    type="radio"
+                    class="btn-check"
+                    name="reaccion"
+                    id="rLike"
+                    value="like"
+                    checked
+                  />
+                  <label class="reaction-btn" for="rLike">
+                    <i class="fa-solid fa-thumbs-up"></i><span>Me gusto</span>
+                  </label>
+                </div>
+                <div>
+                  <input
+                    type="radio"
+                    class="btn-check"
+                    name="reaccion"
+                    id="rLove"
+                    value="double_like"
+                  />
+                  <label class="reaction-btn" for="rLove">
+                    <i class="fa-solid fa-heart"></i><span>Me encanto</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+            <div class="modal-footer border-0 justify-content-center pb-4">
+              <button id="watchSubmitBtn" type="submit" class="btn-recommend">
+                <i class="fa-solid fa-wand-magic-sparkles me-2"></i>OBTENER
+                RECOMENDACIONES
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ SCRIPTS ============ -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+  </body>
+</html>

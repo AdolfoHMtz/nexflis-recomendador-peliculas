@@ -1,0 +1,28 @@
+# Blueprint de Render para el backend Flask de NEXFLIS.
+# La base de datos vive en Neon/Supabase (ver docs/DESPLIEGUE.md), no en Render.
+services:
+  - type: web
+    name: nexflis-api
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    # 1 worker: Flask-Limiter usa memoria local; con varios workers los contadores se dividirian.
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 8 --timeout 60
+    healthCheckPath: /healthz
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.8
+      - key: FLASK_ENV
+        value: production
+      - key: PROXY_HOPS
+        value: "2"
+      - key: TMDB_LANGUAGE
+        value: es-MX
+      - key: FLASK_SECRET_KEY
+        generateValue: true
+      - key: JWT_SECRET
+        generateValue: true
+      - key: TMDB_API_KEY
+        sync: false
+      - key: DATABASE_URL
+        sync: false

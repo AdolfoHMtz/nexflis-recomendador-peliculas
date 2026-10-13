@@ -1,0 +1,23 @@
+# Frontend React (Vite) en Netlify. La API Flask corre en Render y se expone
+# bajo el mismo dominio via proxy, asi la cookie de sesion HttpOnly funciona
+# sin CORS ni cookies de terceros.
+[build]
+  base    = "frontend"
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+# Cambia la URL si tu servicio de Render tiene otro nombre.
+[[redirects]]
+  from   = "/api/*"
+  to     = "https://nexflis-api.onrender.com/api/:splat"
+  status = 200
+  force  = true
+
+# SPA fallback (react-router)
+[[redirects]]
+  from   = "/*"
+  to     = "/index.html"
+  status = 200

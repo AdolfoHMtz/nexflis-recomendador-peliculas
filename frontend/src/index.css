@@ -1,0 +1,2 @@
+/* Reset base — App.css maneja los estilos del proyecto */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }

@@ -1,4 +1,6 @@
 import os
+import time
+import threading
 from concurrent.futures import ThreadPoolExecutor
 import math
 from collections import Counter
@@ -25,6 +27,8 @@ class TmdbService:
         self._genre_map_cache = {}
         self._genre_map_expires_at = datetime.now(timezone.utc)
         self._http = requests.Session()
+        self._mem_cache = {}
+        self._mem_lock = threading.Lock()
 
     def _get_genre_map(self):
         """Obtiene y cachea el mapa id->nombre de generos de TMDB."""
@@ -59,10 +63,16 @@ class TmdbService:
         params['api_key'] = self.api_key
         params.setdefault('language', self.language)
 
+        cache_key = None
         if self._db:
             cache_key = self._db.cache_key(path, params)
+            # Cache en memoria del proceso: evita ir a la BD (red) en cada lectura.
+            hit = self._mem_cache.get(cache_key)
+            if hit is not None and hit[0] > time.monotonic():
+                return hit[1]
             cached = self._db.cache_get(cache_key)
             if cached is not None:
+                self._mem_set(cache_key, cached, min(ttl_seconds, 600))
                 return cached
 
         url = f"{self.base_url}{path}"
@@ -72,8 +82,19 @@ class TmdbService:
 
         if self._db:
             self._db.cache_set(cache_key, data, ttl_seconds)
+            self._mem_set(cache_key, data, min(ttl_seconds, 600))
 
         return data
+
+    def _mem_set(self, key, data, ttl_seconds):
+        with self._mem_lock:
+            if len(self._mem_cache) >= 1500:
+                # Descarta las expiradas; si sigue lleno, vacia (cache simple, sin LRU).
+                ahora = time.monotonic()
+                self._mem_cache = {k: v for k, v in self._mem_cache.items() if v[0] > ahora}
+                if len(self._mem_cache) >= 1500:
+                    self._mem_cache.clear()
+            self._mem_cache[key] = (time.monotonic() + ttl_seconds, data)
 
     def is_ready(self):
         return self.enabled

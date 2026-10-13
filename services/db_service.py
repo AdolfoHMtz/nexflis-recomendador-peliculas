@@ -24,6 +24,44 @@ _LAST_USED = {}  # id(conexion) -> instante del ultimo uso (psycopg2 no admite a
 _IDLE_CHECK_SECONDS = 30
 
 
+class _SimplePool:
+    """Pool minimo y thread-safe que CONSERVA las conexiones libres.
+
+    psycopg2.ThreadedConnectionPool solo mantiene `minconn` libres y cierra el
+    resto, lo que obligaba a reconectar en cada consulta concurrente.
+    """
+
+    def __init__(self, dsn, maxsize):
+        self._dsn = dsn
+        self._idle = []
+        self._lock = threading.Lock()
+        self._sem = threading.BoundedSemaphore(maxsize)
+
+    def getconn(self):
+        if not self._sem.acquire(timeout=10):
+            raise RuntimeError('connection pool exhausted')
+        try:
+            with self._lock:
+                raw = self._idle.pop() if self._idle else None
+            return raw if raw is not None else psycopg2.connect(self._dsn)
+        except Exception:
+            self._sem.release()
+            raise
+
+    def putconn(self, raw, close=False):
+        try:
+            if close or raw.closed:
+                try:
+                    raw.close()
+                except Exception:
+                    pass
+            else:
+                with self._lock:
+                    self._idle.append(raw)
+        finally:
+            self._sem.release()
+
+
 class _PooledConn:
     """Envoltorio de conexion: close() la devuelve al pool en vez de cerrarla.
 
@@ -88,6 +126,7 @@ class DatabaseService:
         self._db_url = db_url
         self._ready = False
         self._pool = None
+        self._clasif_vistas = {}
         self._pool_lock = threading.Lock()
         if db_url and psycopg2:
             self._ensure_cache_table()
@@ -107,8 +146,8 @@ class DatabaseService:
     def _get_pool(self):
         if self._pool is None:
             with self._pool_lock:
-                if self._pool is None and _pg_pool is not None:
-                    self._pool = _pg_pool.ThreadedConnectionPool(1, _POOL_MAX, self._db_url)
+                if self._pool is None and psycopg2 is not None:
+                    self._pool = _SimplePool(self._db_url, _POOL_MAX)
         return self._pool
 
     def _connect(self):
@@ -356,6 +395,10 @@ class DatabaseService:
         """Persiste o actualiza la clasificacion de edad de una pelicula."""
         if not self._ready:
             return
+        firma = (movie_id, titulo, clasificacion_edad, bool(adult))
+        vistas = self.__dict__.setdefault('_clasif_vistas', {})
+        if vistas.get(movie_id) == firma:
+            return
         try:
             conn = self._connect()
             if not conn:
@@ -376,6 +419,7 @@ class DatabaseService:
                         (movie_id, titulo, clasificacion_edad, adult)
                     )
             conn.close()
+            vistas[movie_id] = firma
         except Exception:
             logger.error('upsert_pelicula_clasificacion falló para movie_id=%s', movie_id, exc_info=True)
 

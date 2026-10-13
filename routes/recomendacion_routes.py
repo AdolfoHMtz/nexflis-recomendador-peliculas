@@ -1,4 +1,5 @@
 import re
+from concurrent.futures import ThreadPoolExecutor
 from flask import Blueprint, jsonify, redirect, render_template, request, session, url_for
 from core.logger import get_logger
 
@@ -291,8 +292,9 @@ def api_recomendar():
     # -----------------------------------------------------------------------
     if reaccion == 'dislike':
         discovery_pool = []
-        for page in range(1, 6):
-            discovery_pool.extend(_tmdb.get_popular(page=page))
+        with ThreadPoolExecutor(max_workers=5) as pool:
+            for lista in pool.map(lambda p: _tmdb.get_popular(page=p), range(1, 6)):
+                discovery_pool.extend(lista)
         discovery_pool = _tmdb.enrich_movies(discovery_pool, limit=24)
         discovery_pool = [x for x in discovery_pool if int(x.get('id', 0)) not in ids_vistos and _tiene_datos_minimos(x)]
         discovery_pool = _filtrar_por_edad(discovery_pool)
@@ -323,9 +325,7 @@ def api_recomendar():
     if isinstance(peli_actual, dict):
         similares_pool.extend(peli_actual.get('recommendations', []))
         similares_pool.extend(peli_actual.get('similar', []))
-    for q in _dominant_seed_queries(interaccion):
-        for page in range(1, 3):
-            similares_pool.extend(_tmdb.search_movies(q, page=page))
+    similares_pool.extend(_tmdb.search_movies_many(_dominant_seed_queries(interaccion), pages=(1, 2)))
     dedup, seen_s = [], set()
     for item in similares_pool:
         mid = int(item.get('id', 0) or 0)
@@ -352,9 +352,7 @@ def api_recomendar():
 
     fuera_pool = []
     # Búsqueda directa por cada keyword
-    for kw in kws_base[:6]:
-        fuera_pool.extend(_tmdb.search_movies(kw, page=1))
-        fuera_pool.extend(_tmdb.search_movies(kw, page=2))
+    fuera_pool.extend(_tmdb.search_movies_many(kws_base[:6], pages=(1, 2)))
 
     dedup_f, seen_f = [], set()
     for item in fuera_pool:

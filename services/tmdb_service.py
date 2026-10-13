@@ -1,4 +1,5 @@
 import os
+from concurrent.futures import ThreadPoolExecutor
 import math
 from collections import Counter
 from datetime import datetime, timedelta, timezone
@@ -513,41 +514,71 @@ class TmdbService:
         return out
 
     def _expand_movie_details(self, movies, limit=20):
-        """Enriquece listas de peliculas con detalle adicional de forma acotada por limite."""
+        """Enriquece listas de peliculas con detalle adicional de forma acotada por limite.
+
+        Las consultas de detalle se hacen en paralelo: en serie, 20-40 llamadas a TMDB
+        superaban el timeout del proxy (504).
+        """
         if not movies:
             return []
 
-        expanded = []
-        for idx, movie in enumerate(movies):
-            item = dict(movie)
+        expanded = [dict(m) for m in movies]
+        pendientes = []
+        for idx, item in enumerate(expanded):
             need_details = (
                 not item.get('cast_list') or
                 not item.get('director') or
                 float(item.get('runtime') or 0) <= 0
             )
+            mid = int(item.get('id', 0) or 0)
+            if need_details and idx < limit and mid:
+                pendientes.append((idx, mid))
 
-            if need_details and idx < limit:
-                mid = int(item.get('id', 0) or 0)
-                if mid:
-                    try:
-                        details = self.get_movie_details(mid, include_related=False)
-                        item['genres_list'] = details.get('genres_list', item.get('genres_list', []))
-                        item['keywords_list'] = details.get('keywords_list', item.get('keywords_list', []))
-                        item['overview'] = details.get('overview', item.get('overview', ''))
-                        item['cast_list'] = details.get('cast_list', item.get('cast_list', []))
-                        item['director'] = details.get('director', item.get('director', ''))
-                        item['runtime'] = details.get('runtime', item.get('runtime', 0))
-                        item['collection_id'] = details.get('collection_id', item.get('collection_id', 0))
-                        item['collection_name'] = details.get('collection_name', item.get('collection_name', ''))
-                        item['clasificacion_edad'] = details.get('clasificacion_edad', item.get('clasificacion_edad', 0))
-                        item['adult'] = details.get('adult', item.get('adult', False))
-                        item['release_date'] = details.get('release_date', item.get('release_date', ''))
-                    except Exception:
-                        logger.warning('No se pudo enriquecer movie_id=%s — se usarán datos parciales', mid, exc_info=True)
+        def _fetch(mid):
+            try:
+                return self.get_movie_details(mid, include_related=False)
+            except Exception:
+                logger.warning('No se pudo enriquecer movie_id=%s — se usarán datos parciales', mid, exc_info=True)
+                return None
 
-            expanded.append(item)
+        if pendientes:
+            with ThreadPoolExecutor(max_workers=min(8, len(pendientes))) as pool:
+                resultados = list(pool.map(lambda p: _fetch(p[1]), pendientes))
+
+            for (idx, _mid), details in zip(pendientes, resultados):
+                if not details:
+                    continue
+                item = expanded[idx]
+                item['genres_list'] = details.get('genres_list', item.get('genres_list', []))
+                item['keywords_list'] = details.get('keywords_list', item.get('keywords_list', []))
+                item['overview'] = details.get('overview', item.get('overview', ''))
+                item['cast_list'] = details.get('cast_list', item.get('cast_list', []))
+                item['director'] = details.get('director', item.get('director', ''))
+                item['runtime'] = details.get('runtime', item.get('runtime', 0))
+                item['collection_id'] = details.get('collection_id', item.get('collection_id', 0))
+                item['collection_name'] = details.get('collection_name', item.get('collection_name', ''))
+                item['clasificacion_edad'] = details.get('clasificacion_edad', item.get('clasificacion_edad', 0))
+                item['adult'] = details.get('adult', item.get('adult', False))
+                item['release_date'] = details.get('release_date', item.get('release_date', ''))
 
         return expanded
+
+    def search_movies_many(self, queries, pages=(1,)):
+        """Ejecuta varias busquedas (query x pagina) en paralelo y concatena resultados en orden."""
+        tareas = [(q, p) for q in queries for p in pages]
+        if not tareas:
+            return []
+
+        def _run(t):
+            try:
+                return self.search_movies(t[0], page=t[1])
+            except Exception:
+                logger.warning('Fallo busqueda query=%r page=%s', t[0], t[1], exc_info=True)
+                return []
+
+        with ThreadPoolExecutor(max_workers=min(8, len(tareas))) as pool:
+            listas = list(pool.map(_run, tareas))
+        return [m for lista in listas for m in lista]
 
     def enrich_movies(self, movies, limit=20):
         return self._expand_movie_details(movies, limit=limit)
